@@ -1,1 +1,2 @@
-rm e.* o.* lsb.* 
+rm e.* o.* lsb.* complete running
+rm -rf logs result 

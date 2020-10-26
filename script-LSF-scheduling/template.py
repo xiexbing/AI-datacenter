@@ -9,8 +9,7 @@ import shutil
 import subprocess as sp
 
 job_name = "JOB"
-complete = "/ccs/home/bing/dl-ornl/script"
-data_dir = "/gpfs/alpine/stf008/scratch/bing/dl/lsb_acct"
+data_dir = "dir_for_original_log"
 result_dir = "result"
 
 def read_file(data_file):
@@ -21,108 +20,111 @@ def read_file(data_file):
 
     return dfile
 
-def process_line(line, rdir):
+def process_line(line, rdir, edir):
 
-    err = 0
- 
     inform = line.split('"')
-    nodes = inform[26].split()
-
-    if len(nodes) == 4:
-        fdir = os.path.join(result_dir, 'error_records')
-        fd = open(fdir, 'a')
-        wline = 'err: format nodes: ' + line
-        fd.write(wline)
-        fd.truncate()
-        fd.close()
+    status = inform[1]
+    times_nodes = inform[4].split()
+    if len(times_nodes) != 9:
+        efile = open(edir, 'a')
+        wline = 'err:status ' + line
+        efile.write(wline)
+        efile.truncate()
+        efile.close()
+        return
         
-        err = 1
     else:
-        status = inform[1]
-        userName = inform[5]
-
-        ids = inform[4].split()
-        if len(ids) == 9:
-            finishTime = ids[0]
-            jobID = ids[1]
-            userID = ids[2]
-            num_cores = int(ids[4]) - 1
-            submitTime = ids[5]
-            beginTime = ids[6]
-            termTime = ids[7]
-            startTime = ids[8]
-           
+        finishTime = times_nodes[0]
+        jobID = times_nodes[1]
+        userID = times_nodes[2]
+        numCores = times_nodes[4]
+        numNodes = int((int(numCores) -1)/42)
+        submitTime = times_nodes[5]
+        beginTime = times_nodes[8]
+        if beginTime == '0':
+            efile = open(edir, 'a')
+            wline = 'err:beginTime ' + line
+            efile.write(wline)
+            efile.truncate()
+            efile.close()
+            return
+        else: 
+            userName = inform[5]
             nodes = []
-            for i in inform[29:29+num_cores*2-1]:
-                if i != ' ' and i not in nodes:
-                    nodes.append(i)
-            if num_cores/42 != len(nodes):
-                print (num_cores, len(nodes), nodes)
-                wline = 'err: number of nodes ' + num_cores + ' ' + len(nodes)  + line
-                fdir = os.path.join(result_dir, 'error_records')
-                fd = open(fdir, 'a')
-                fd.write(wline)
-                fd.truncate()
-                fd.close()
-
-                err = 1
-
+            if 'batch' in inform[27] and 'batch' != inform[27]:
+                batchNode = inform[27]
+                nstart = 29
+                nend = nstart + int(numCores)*2 -3
+            elif 'batch' in inform[31] and 'batch' != inform[31]:
+                batchNode = inform[31]
+                nstart = 33
+                nend = nstart + int(numCores)*2 -3
             else:
-                new_start = 29+num_cores*2-1
-                command = inform[new_start+3].split()
-                time = 'time'
-                for i, per in enumerate(command):
-                    if '-W' == per and "BSUB" in command[i-1]:
-                        time = command[i+1].replace("BSUB", "").replace(";", "").replace("#", "").replace("-", "")
-                    if '-P' == per and "BSUB" in command[i-1]:
-                        proj = command[i+1].replace("BSUB", "").replace(";", "").replace("#", "").replace("-", "")
-                try:
-                    proj
-                except NameError:
-                    wline = 'err: proj name ' + line
-                    fdir = os.path.join(result_dir, 'error_records')
-                    fd = open(fdir, 'a')
-                    fd.write(wline)
-                    fd.truncate()
-                    fd.close()
-
-                    err = 1
-
-                if err == 0:
-                    after_command = new_start + 4
-                    for i, per in enumerate(inform[after_command:]):
-                        if per == proj:
-                            useful = i+after_command
-                            memory = inform[useful+5].split()[1:]
-                            max_res_memory = memory[0]
-                            virtual_memory = memory[1]
-                            exit_status = inform[new_start].split()[0]
-                            record_line = [status, proj, userName, jobID, userID, submitTime, startTime, finishTime, max_res_memory, virtual_memory, exit_status, time, len(nodes)] + nodes
+                efile = open(edir, 'a')
+                wline = 'err:nodeStart ' + line
+                efile.write(wline)
+                efile.truncate()
+                efile.close()
+                return
+            for item in inform[nstart:nend]:
+                if item not in nodes and item != ' ':
+                    nodes.append(item)
+            if len(nodes) != numNodes:
+                print ('err:numNodes: ', len(nodes), numNodes, inform[nstart-2:nend])
+                efile = open(edir, 'a')
+                wline = 'err:numNodes ' + line
+                efile.write(wline)
+                efile.truncate()
+                efile.close()
+                return
+            else:
+                exitStatus = inform[nend].split()[0]
+                newStart = nend + 1
+                err = 1 
+                for i, item in enumerate(inform[newStart:]):
+                    if numCores in item and batchNode == inform[newStart+i+1]:
+                        nameIndex = newStart+i-15
+                        projName = inform[nameIndex]
+                        if projName != '0': 
+                            print (inform[nameIndex:])
+                            record_line = [status, projName, userName, jobID, userID, submitTime, beginTime, finishTime, exitStatus, len(nodes)] + nodes
                             wline = ' '.join(str(f) for f in record_line) + '\n'
                             rfile = open(rdir, 'a')
                             rfile.write (wline)
                             rfile.truncate()
                             rfile.close()
-                            break
-
-
-        else:
-            wline = 'err: miss inform ids '  + line
-            fdir = os.path.join(result_dir, 'error_records')
-            fd = open(fdir, 'a')
-            fd.write(wline)
-            fd.truncate()
-            fd.close()
-            err = 1
+                            err = 0
+                            return
+                        else:
+                            print ('err:projName: ', inform[nameIndex:])
+                            efile = open(edir, 'a')
+                            wline = 'err:projName ' + line
+                            efile.write(wline)
+                            efile.truncate()
+                            efile.close()
+                            return
  
+                if err == 0:
+                    efile = open(edir, 'a')
+                    wline = 'err:unCatch ' + line
+                    efile.write(wline)
+                    efile.truncate()
+                    efile.close()
+                    return
+          
+
 def process_log(job):
 
     job_dir = os.path.join(data_dir, job)
     rdir = os.path.join(result_dir, job) 
+    efile = job + ".err"
+    edir = os.path.join(result_dir, efile) 
+
+
     data = read_file(job_dir)
 
     for line in data:
-        process_line(line, rdir)
+        process_line(line, rdir, edir)
      
 
 def main(): 
@@ -132,7 +134,7 @@ def main():
 
     rdir = os.path.join(result_dir, job_name)
     rfile = open(rdir, 'a')
-    start_line = "#1.job status, 2.proj Name, 3.userName, 4.jobID, 5.userID, 6.submitTime, 7.startTime, 8.finishTime, 9.max_res_memory, 10.virtual_memory, 11.exit_status, 12.time, 13.len(nodes), 14.nodeList" + '\n'
+    start_line = "#1.jobStatus, 2.projName, 3.userName, 4.jobID, 5.userID, 6.submitTime, 7.beginTime, 8.finishTime, 9.exit_status, 10.len(nodes), 11.nodeList" + '\n'
     rfile.write(start_line)
     rfile.truncate()
     rfile.close()

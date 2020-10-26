@@ -1,13 +1,14 @@
 #!/bin/bash -l
 
 count=`squeue -u bing|grep bing|wc -l`
-cut=10
-lsb_dir=/gpfs/alpine/stf008/scratch/bing/dl/lsb_acct
+cut=100
+lsb_dir=dir_for_lsf_logs
 
 
 rm curr_*
 touch complete
 touch running
+mkdir logs
 
 process(){
     local per=$1
